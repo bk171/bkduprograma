@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiniCraft</title>
+
+<style>
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background: #111;
+    font-family: Arial, sans-serif;
+    overflow: hidden;
+    user-select: none;
+}
+
+#game {
+    width: 100vw;
+    height: 100vh;
+    display: block;
+    background: #75cfff;
+    image-rendering: pixelated;
+}
+
+#hud {
+    position: fixed;
+    top: 15px;
+    left: 15px;
+    color: white;
+    font-weight: bold;
+    text-shadow: 2px 2px 3px #000;
+    font-size: 18px;
+    z-index: 10;
+}
+
+#crosshair {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 30px;
+    font-weight: bold;
+    text-shadow: 2px 2px #000;
+    pointer-events: none;
+}
+
+#inventory {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 6px;
+    z-index: 10;
+}
+
+.slot {
+    width: 55px;
+    height: 55px;
+    border: 3px solid #555;
+    background: rgba(30,30,30,.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+}
+
+.slot.selected {
+    border-color: white;
+    box-shadow: 0 0 10px white;
+}
+
+#help {
+    position: fixed;
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: white;
+    background: rgba(0,0,0,.55);
+    padding: 10px 18px;
+    border-radius: 8px;
+    text-align: center;
+    z-index: 10;
+}
+
+#start {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    color: white;
+    z-index: 20;
+}
+
+#start h1 {
+    font-size: 55px;
+    color: #65d84a;
+    text-shadow: 4px 4px #164d12;
+    margin-bottom: 15px;
+}
+
+#start p {
+    font-size: 20px;
+    margin-bottom: 25px;
+}
+
+button {
+    padding: 15px 35px;
+    font-size: 22px;
+    font-weight: bold;
+    border: none;
+    border-radius: 10px;
+    background: #4caf50;
+    color: white;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #66bb6a;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="hud">
+    ❤️ Vida: <span id="life">100</span><br>
+    🪵 Blocos: <span id="blocks">20</span>
+</div>
+
+<div id="crosshair">+</div>
+
+<div id="inventory">
+    <div class="slot selected">🟩</div>
+    <div class="slot">🟫</div>
+    <div class="slot">🪨</div>
+    <div class="slot">🌳</div>
+</div>
+
+<div id="help">
+    WASD = andar | Clique esquerdo = quebrar | Clique direito = colocar
+</div>
+
+<div id="start">
+    <h1>MINICRAFT</h1>
+    <p>Um pequeno mundo de blocos feito em JavaScript</p>
+    <button onclick="startGame()">JOGAR</button>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let W = window.innerWidth;
+let H = window.innerHeight;
+
+canvas.width = W;
+canvas.height = H;
+
+window.addEventListener("resize", () => {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W;
+    canvas.height = H;
+});
+
+const TILE = 45;
+
+let player = {
+    x: 10,
+    y: 7,
+    speed: 0.12
+};
+
+let camera = {
+    x: 0,
+    y: 0
+};
+
+let life = 100;
+let blocks = 20;
+let gameStarted = false;
+
+let keys = {};
+
+document.addEventListener("keydown", e => {
+    keys[e.key.toLowerCase()] = true;
+
+    if (e.key >= "1" && e.key <= "4") {
+        selectBlock(Number(e.key) - 1);
+    }
+});
+
+document.addEventListener("keyup", e => {
+    keys[e.key.toLowerCase()] = false;
+});
+
+const types = {
+    grass: {
+        color: "#55a832",
+        symbol: "🟩"
+    },
+    dirt: {
+        color: "#8b572a",
+        symbol: "🟫"
+    },
+    stone: {
+        color: "#777",
+        symbol: "🪨"
+    },
+    wood: {
+        color: "#9a612f",
+        symbol: "🪵"
+    }
+};
+
+let selected = 0;
+
+const inventory = document.querySelectorAll(".slot");
+
+function selectBlock(index) {
+    selected = index;
+
+    inventory.forEach((slot, i) => {
+        slot.classList.toggle("selected", i === index);
+    });
+}
+
+let world = [];
+
+const worldWidth = 45;
+const worldHeight = 25;
+
+for (let y = 0; y < worldHeight; y++) {
+
+    world[y] = [];
+
+    for (let x = 0; x < worldWidth; x++) {
+
+        if (y < 11) {
+            world[y][x] = "air";
+        }
+        else if (y === 11) {
+            world[y][x] = "grass";
+        }
+        else if (y < 15) {
+            world[y][x] = "dirt";
+        }
+        else {
+            world[y][x] = "stone";
+        }
+    }
+}
+
+/* ÁRVORES */
+
+function createTree(x, y) {
+
+    if (y < 2) return;
+
+    world[y][x] = "wood";
+    world[y-1][x] = "wood";
+    world[y-2][x] = "wood";
+
+    for (let yy = y-4; yy <= y-2; yy++) {
+        for (let xx = x-1; xx <= x+1; xx++) {
+
+            if (
+                yy >= 0 &&
+                yy < worldHeight &&
+                xx >= 0 &&
+                xx < worldWidth
+            ) {
+                world[yy][xx] = "grass";
+            }
+        }
+    }
+}
+
+createTree(5, 11);
+createTree(17, 11);
+createTree(31, 11);
+createTree(40, 11);
+
+/* PEDRAS */
+
+world[10][12] = "stone";
+world[10][13] = "stone";
+world[10][26] = "stone";
+world[10][27] = "stone";
+
+/* NUVENS */
+
+let clouds = [
+    {x: 100, y: 100},
+    {x: 500, y: 70},
+    {x: 900, y: 120},
+    {x: 1250, y: 80}
+];
+
+function drawSky() {
+
+    let gradient = ctx.createLinearGradient(0, 0, 0, H);
+
+    gradient.addColorStop(0, "#4bb8f0");
+    gradient.addColorStop(1, "#b8e9ff");
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, W, H);
+
+    /* sol */
+
+    ctx.fillStyle = "#ffe36b";
+    ctx.beginPath();
+    ctx.arc(W - 120, 100, 55, 0, Math.PI * 2);
+    ctx.fill();
+
+    /* nuvens */
+
+    ctx.fillStyle = "rgba(255,255,255,.8)";
+
+    clouds.forEach(c => {
+
+        ctx.beginPath();
+
+        ctx.arc(c.x, c.y, 25, 0, Math.PI * 2);
+        ctx.arc(c.x + 30, c.y - 10, 35, 0, Math.PI * 2);
+        ctx.arc(c.x + 65, c.y, 25, 0, Math.PI * 2);
+
+        ctx.fill();
+    });
+}
+
+function drawWorld() {
+
+    const startX = Math.floor(camera.x / TILE);
+    const startY = Math.floor(camera.y / TILE);
+
+    const endX = startX + Math.ceil(W / TILE) + 2;
+    const endY = startY + Math.ceil(H / TILE) + 2;
+
+    for (let y = startY; y < endY; y++) {
+
+        for (let x = startX; x < endX; x++) {
+
+            if (
+                y < 0 ||
+                y >= worldHeight ||
+                x < 0 ||
+                x >= worldWidth
+            ) continue;
+
+            let block = world[y][x];
+
+            if (block === "air") continue;
+
+            let px = x * TILE - camera.x;
+            let py = y * TILE - camera.y;
+
+            ctx.fillStyle = types[block].color;
+
+            ctx.fillRect(px, py, TILE, TILE);
+
+            /* textura dos blocos */
+
+            ctx.strokeStyle = "rgba(0,0,0,.18)";
+            ctx.strokeRect(px, py, TILE, TILE);
+
+            if (block === "grass") {
+
+                ctx.fillStyle = "#72d24d";
+                ctx.fillRect(px, py, TILE, 8);
+
+            }
+
+            if (block === "stone") {
+
+                ctx.fillStyle = "rgba(255,255,255,.12)";
+
+                ctx.fillRect(px + 8, py + 10, 7, 7);
+                ctx.fillRect(px + 28, py + 25, 6, 6);
+                ctx.fillRect(px + 18, py + 35, 5, 5);
+            }
+
+            if (block === "wood") {
+
+                ctx.fillStyle = "#6b3e1e";
+
+                ctx.fillRect(px + 20, py, 6, TILE);
+            }
+        }
+    }
+}
+
+function drawPlayer() {
+
+    let px = player.x * TILE - camera.x;
+    let py = player.y * TILE - camera.y;
+
+    /* corpo */
+
+    ctx.fillStyle = "#2455c3";
+    ctx.fillRect(px + 10, py + 18, 25, 25);
+
+    /* cabeça */
+
+    ctx.fillStyle = "#f1b27a";
+    ctx.fillRect(px + 12, py + 2, 22, 20);
+
+    /* cabelo */
+
+    ctx.fillStyle = "#432815";
+    ctx.fillRect(px + 12, py + 2, 22, 7);
+
+    /* olhos */
+
+    ctx.fillStyle = "#111";
+    ctx.fillRect(px + 16, py + 12, 3, 3);
+    ctx.fillRect(px + 27, py + 12, 3, 3);
+
+    /* pernas */
+
+    ctx.fillStyle = "#333";
+    ctx.fillRect(px + 11, py + 40, 9, 10);
+    ctx.fillRect(px + 25, py + 40, 9, 10);
+}
+
+function updatePlayer() {
+
+    let dx = 0;
+    let dy = 0;
+
+    if (keys["w"] || keys["arrowup"]) dy -= player.speed;
+    if (keys["s"] || keys["arrowdown"]) dy += player.speed;
+    if (keys["a"] || keys["arrowleft"]) dx -= player.speed;
+    if (keys["d"] || keys["arrowright"]) dx += player.speed;
+
+    let nx = player.x + dx;
+    let ny = player.y + dy;
+
+    if (!collision(nx, player.y)) {
+        player.x = nx;
+    }
+
+    if (!collision(player.x, ny)) {
+        player.y = ny;
+    }
+
+    camera.x = player.x * TILE - W / 2;
+    camera.y = player.y * TILE - H / 2;
+
+    camera.x = Math.max(0, Math.min(
+        camera.x,
+        worldWidth * TILE - W
+    ));
+
+    camera.y = Math.max(0, Math.min(
+        camera.y,
+        worldHeight * TILE - H
+    ));
+}
+
+function collision(x, y) {
+
+    let bx = Math.floor(x);
+    let by = Math.floor(y);
+
+    if (
+        bx < 0 ||
+        by < 0 ||
+        bx >= worldWidth ||
+        by >= worldHeight
+    ) {
+        return true;
+    }
+
+    return world[by][bx] !== "air";
+}
+
+/* CLIQUE */
+
+canvas.addEventListener("contextmenu", e => {
+    e.preventDefault();
+});
+
+canvas.addEventListener("mousedown", e => {
+
+    if (!gameStarted) return;
+
+    let worldX = Math.floor(
+        (e.clientX + camera.x) / TILE
+    );
+
+    let worldY = Math.floor(
+        (e.clientY + camera.y) / TILE
+    );
+
+    if (
+        worldX < 0 ||
+        worldY < 0 ||
+        worldX >= worldWidth ||
+        worldY >= worldHeight
+    ) return;
+
+    /* clique esquerdo = quebrar */
+
+    if (e.button === 0) {
+
+        if (world[worldY][worldX] !== "air") {
+
+            world[worldY][worldX] = "air";
+
+            blocks++;
+
+            updateHUD();
+        }
+    }
+
+    /* clique direito = colocar */
+
+    if (e.button === 2) {
+
+        if (
+            world[worldY][worldX] === "air" &&
+            blocks > 0
+        ) {
+
+            let blockTypes = [
+                "grass",
+                "dirt",
+                "stone",
+                "wood"
+            ];
+
+            world[worldY][worldX] =
+                blockTypes[selected];
+
+            blocks--;
+
+            updateHUD();
+        }
+    }
+});
+
+function updateHUD() {
+
+    document.getElementById("blocks").textContent = blocks;
+    document.getElementById("life").textContent = life;
+}
+
+function startGame() {
+
+    document.getElementById("start").style.display = "none";
+
+    gameStarted = true;
+
+    canvas.focus();
+}
+
+function gameLoop() {
+
+    drawSky();
+
+    updatePlayer();
+
+    drawWorld();
+
+    drawPlayer();
+
+    requestAnimationFrame(gameLoop);
+}
+
+updateHUD();
+gameLoop();
+</script>
+
+</body>
+</html>
